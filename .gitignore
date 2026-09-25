@@ -1,2 +1,4 @@
 venv.
 venv/
+ui/__pycache__
+database/__pycache__
