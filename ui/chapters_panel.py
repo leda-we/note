@@ -60,7 +60,7 @@ class ChapterPanel(QWidget):
 
         row = self.chapters_list.row(item)
         self.chapters_list.takeItem(row)
-        self.chapters_deleted.emit(chapter_id)
+        self.chapter_deleted.emit(chapter_id)
 
     def on_chapter_changed(self, current, previous):
         if current is None:

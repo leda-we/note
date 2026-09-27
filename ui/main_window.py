@@ -2,6 +2,9 @@ from PySide6.QtWidgets import *
 from ui.editor import BookEditor
 from ui.chapters_panel import ChapterPanel
 from database.database import Database
+from PySide6.QtCore import *
+from ui.inspiration_panel import InspirationPanel
+from PySide6.QtGui import *
 
 
 class MainWindow(QMainWindow):
@@ -16,6 +19,12 @@ class MainWindow(QMainWindow):
         self.chapters = {}
         self.current_chapter_id = None
 
+        self.save_timer = QTimer(self)
+        self.save_timer.setSingleShot(True)
+        self.save_timer.setInterval(700)
+        self.save_timer.timeout.connect(self.save_current_chapter)
+
+
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
@@ -24,6 +33,8 @@ class MainWindow(QMainWindow):
         self.chapter_panel = ChapterPanel()
 
         self.editor = BookEditor()
+        self.inspiration_panel = InspirationPanel()
+        self.inspiration_panel.hide()
 
         editor_container = QWidget()
         editor_layout = QHBoxLayout(editor_container)
@@ -39,6 +50,7 @@ class MainWindow(QMainWindow):
         )
         main_layout.addWidget(self.chapter_panel)
         main_layout.addWidget(editor_container)
+        main_layout.addWidget(self.inspiration_panel)
 
         self.chapter_panel.chapter_created.connect(
             self.create_chapter
@@ -55,9 +67,14 @@ class MainWindow(QMainWindow):
         )
 
         self.editor.textChanged.connect(
-            self.save_current_chapter
+            self.schedule_save
         )
         self.load_chapters()
+
+        self.inspiration_shortcut = QShortcut(QKeySequence("ctrl+I"), self)
+        self.inspiration_shortcut.activated.connect(self.toggle_inspiration_panel)
+
+
 
     def create_chapter(self, chapter_id, title):
         position = len(self.chapters)
@@ -71,6 +88,7 @@ class MainWindow(QMainWindow):
             position
         )
     def open_chapter(self,chapter_id):
+        self.save_timer.stop()
         self.save_current_chapter()
         self.current_chapter_id = chapter_id
         chapter = self.chapters.get(chapter_id)
@@ -142,4 +160,17 @@ class MainWindow(QMainWindow):
         if self.chapter_panel.chapters_list.count() > 0:
             self.chapter_panel.chapters_list.setCurrentRow(0)
 
+    def schedule_save(self):
+        self.save_timer.start()
+
+    def closeEvent(self, event):
+        self.save_timer.stop()
+        self.save_current_chapter()
+        event.accept()
+
+    def toggle_inspiration_panel(self):
+        if self.inspiration_panel.isVisible():
+            self.inspiration_panel.hide()
+        else:
+            self.inspiration_panel.show()
         
