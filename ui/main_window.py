@@ -36,6 +36,8 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
 
         main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(18, 18, 18, 18)
+        main_layout.setSpacing(18)
 
         self.chapter_panel = ChapterPanel()
 
@@ -48,6 +50,8 @@ class MainWindow(QMainWindow):
 
         editor_container = QWidget()
         editor_layout = QHBoxLayout(editor_container)
+        editor_layout.setContentsMargins(0, 0, 0, 0)
+        
 
         editor_layout.addStretch()
         editor_layout.addWidget(self.editor)

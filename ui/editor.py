@@ -9,19 +9,15 @@ class BookEditor(QTextEdit):
         super().__init__()
         self.setPlaceholderText("Начните писать...")
 
-        font = QFont("Georgia", 14)
+        font = QFont("Georgia", 15)
         self.setFont(font)
 
         self.document().setDocumentMargin(45)
+        self.setTabStopDistance(40)
         self.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
 
+
         self.setAcceptRichText(True)
-        self.setStyleSheet("""QTextEdit{
-        border: none;
-        background-color: white;
-        padding: 10px;
-        }
-        """)
         self.pending_link_cursor = None
 
     def contextMenuEvent(self, event):
