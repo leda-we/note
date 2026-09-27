@@ -5,6 +5,8 @@ from database.database import Database
 from PySide6.QtCore import *
 from ui.inspiration_panel import InspirationPanel
 from PySide6.QtGui import *
+import uuid
+from ui.object_panel import ObjectPanel
 
 
 class MainWindow(QMainWindow):
@@ -24,6 +26,11 @@ class MainWindow(QMainWindow):
         self.save_timer.setInterval(700)
         self.save_timer.timeout.connect(self.save_current_chapter)
 
+        self.object_save_timer = QTimer(self)
+        self.object_save_timer.setSingleShot(True)
+        self.object_save_timer.setInterval(700)
+        self.object_save_timer.timeout.connect(self.save_current_object)
+        
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -35,6 +42,9 @@ class MainWindow(QMainWindow):
         self.editor = BookEditor()
         self.inspiration_panel = InspirationPanel()
         self.inspiration_panel.hide()
+        self.object_panel = ObjectPanel()
+        self.object_panel.hide()
+        self.current_linked_item_id = None
 
         editor_container = QWidget()
         editor_layout = QHBoxLayout(editor_container)
@@ -48,9 +58,12 @@ class MainWindow(QMainWindow):
             QSizePolicy.Policy.Expanding, 
             QSizePolicy.Policy.Expanding,
         )
+        self.editor.link_requested.connect(self.create_link)
+
         main_layout.addWidget(self.chapter_panel)
         main_layout.addWidget(editor_container)
         main_layout.addWidget(self.inspiration_panel)
+        main_layout.addWidget(self.object_panel)
 
         self.chapter_panel.chapter_created.connect(
             self.create_chapter
@@ -69,6 +82,10 @@ class MainWindow(QMainWindow):
         self.editor.textChanged.connect(
             self.schedule_save
         )
+        self.editor.link_clicked.connect(self.open_linked_item)
+
+        self.object_panel.description_changed.connect(self.schedule_object_save)
+
         self.load_chapters()
 
         self.inspiration_shortcut = QShortcut(QKeySequence("ctrl+I"), self)
@@ -81,6 +98,7 @@ class MainWindow(QMainWindow):
         self.chapters[chapter_id] = {
             "title:": title,
             "text": "",
+            "html": "",
         }
         self.db.create_chapter(
             chapter_id,
@@ -95,9 +113,11 @@ class MainWindow(QMainWindow):
         if chapter is None:
             return
         self.editor.blockSignals(True)
-        self.editor.setPlainText(
-            chapter["text"]
-        )
+        if chapter["html"]:
+            self.editor.setHtml(chapter["html"])
+        else:
+            self.editor.setPlainText(chapter["text"])
+
         self.editor.blockSignals(False)
 
     def save_current_chapter(self):
@@ -107,14 +127,18 @@ class MainWindow(QMainWindow):
             return
 
         text = self.editor.toPlainText()
+        content_html = self.editor.toHtml()
 
         self.chapters[
             self.current_chapter_id
         ]["text"] = text
 
-        self.db.update_chapter_text(
+        self.chapters[self.current_chapter_id]["html"] = content_html
+
+        self.db.update_chapter_content(
             self.current_chapter_id,
-            text
+            text,
+            content_html,
         )
 
     def rename_chapter(self, chapter_id, new_title):
@@ -151,12 +175,13 @@ class MainWindow(QMainWindow):
             self.chapters[chapter_id] = {
                 "title": chapter["title"],
                 "text": chapter["text"],
+                "html": chapter["content_html"],
             }
-
             self.chapter_panel.add_chapter(
                 chapter_id,
                 chapter["title"]
             )
+
         if self.chapter_panel.chapters_list.count() > 0:
             self.chapter_panel.chapters_list.setCurrentRow(0)
 
@@ -172,5 +197,53 @@ class MainWindow(QMainWindow):
         if self.inspiration_panel.isVisible():
             self.inspiration_panel.hide()
         else:
+            self.object_panel.hide()
+
             self.inspiration_panel.show()
-        
+
+    def create_link(self, selected_text):
+        item_types = ["Персонаж", "Локация", "Заметка"]
+        item_type, ok = QInputDialog.getItem(self, "Создать ссылку", "Тип:", item_types, 0, False)
+        if not ok:
+            return
+        item_name, ok = QInputDialog.getText(self, "Название", "Название объекта:", text=selected_text)
+        if not ok or not item_name.strip():
+            return
+        item_id = str(uuid.uuid4())
+        type_map = {
+            "Персонаж": "character",
+            "Локация": "location",
+            "Заметка": "note",
+        }
+        internal_type = type_map[item_type]
+        self.db.create_linked_item(item_id, item_name.strip(), internal_type)
+        self.editor.apply_internal_link(item_id, item_name.strip(), item_type)
+        self.schedule_save()
+
+    def open_linked_item(self, item_id):
+        item = self.db.get_linked_item(item_id)
+        if item is None:
+            return
+        self.current_linked_item_id = item_id
+
+        type_names = {
+            "character": "Персонаж",
+            "location": "Локация",
+            "note": "Заметка",
+        }
+
+        item_type = type_names.get(item["item_type"], item["item_type"])
+        self.inspiration_panel.hide()
+        self.object_panel.show_item(item["name"], item_type, item["description"])
+        self.object_panel.show()
+
+    def schedule_object_save(self):
+        if self.current_linked_item_id is None:
+            return
+        self.object_save_timer.start()
+
+    def save_current_object(self):
+        if self.current_linked_item_id is None:
+            return
+        description = (self.object_panel.description_editor.toPlainText())
+        self.db.update_linked_item_description(self.current_linked_item_id, description)
