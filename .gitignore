@@ -4,3 +4,13 @@ ui/__pycache__
 database/__pycache__
 data/
 book_writer
+# Local data and generated previews
+__pycache__/
+*.py[cod]
+book_writer.db
+*.backup-*.db
+artifacts/
+README.md
+requirements.txt
+tests/
+scripts/

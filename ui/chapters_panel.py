@@ -1,111 +1,161 @@
-import uuid
-
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import *
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QTreeWidget, QTreeWidgetItem, QMenu, QProgressBar,
+)
+
+from ui.icons import make_icon
+
+ROLE = Qt.ItemDataRole.UserRole
+
 
 class ChapterPanel(QWidget):
     chapter_selected = Signal(str)
-    chapter_created = Signal(str, str)
-    chapter_renamed = Signal(str, str)
-    chapter_deleted = Signal(str)
+    create_requested = Signal(str)
+    part_requested = Signal()
+    rename_requested = Signal(str, str)
+    delete_requested = Signal(str, str)
+    move_requested = Signal(str, str)
+    category_selected = Signal(str)
 
     def __init__(self):
         super().__init__()
-
-        self.setFixedWidth(220)
+        self.setObjectName("chapterPanel")
+        self.setMinimumWidth(220)
+        self.setMaximumWidth(380)
         layout = QVBoxLayout(self)
-        title = QLabel("Chapters")
-        self.chapters_list = QListWidget()
-        layout.addWidget(title)
-        layout.addWidget(self.chapters_list)
+        layout.setContentsMargins(14, 16, 14, 16)
+        layout.setSpacing(5)
+        self.nav_buttons = []
+        for symbol, title, category in [
+            ("home", "Рукопись", ""),
+            ("all", "Все объекты", "all"),
+            ("character", "Персонажи", "character"),
+            ("location", "Локации", "location"),
+            ("note", "Заметки", "note"),
+        ]:
+            button = QPushButton("   " + title)
+            button.setIcon(make_icon(symbol))
+            button.setObjectName("navButton")
+            button.setCheckable(True)
+            button.clicked.connect(lambda checked=False, c=category: self.select_category(c))
+            self.nav_buttons.append((category, button))
+            layout.addWidget(button)
+        self.nav_buttons[0][1].setChecked(True)
+        layout.addSpacing(20)
+        heading = QHBoxLayout()
+        label = QLabel("СТРУКТУРА КНИГИ")
+        label.setObjectName("eyebrow")
+        heading.addWidget(label)
+        heading.addStretch()
+        add_part = QPushButton("+")
+        add_part.setObjectName("smallButton")
+        add_part.setToolTip("Добавить часть книги")
+        add_part.clicked.connect(self.part_requested.emit)
+        heading.addWidget(add_part)
+        layout.addLayout(heading)
+        self.tree = QTreeWidget()
+        self.tree.setHeaderHidden(True)
+        self.tree.setIndentation(16)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self.context_menu)
+        self.tree.currentItemChanged.connect(self.on_selection)
+        layout.addWidget(self.tree, 1)
+        create = QPushButton("+    Новая глава")
+        create.setObjectName("navButton")
+        create.clicked.connect(lambda: self.create_requested.emit(self.selected_part()))
+        layout.addWidget(create)
+        layout.addSpacing(12)
+        self.summary = QLabel()
+        self.summary.setWordWrap(True)
+        self.summary.setObjectName("bookSummary")
+        layout.addWidget(self.summary)
+        self.progress = QProgressBar()
+        self.progress.setTextVisible(False)
+        self.progress.setFixedHeight(5)
+        layout.addWidget(self.progress)
+        self.parts = []
+        self.chapter_nodes = {}
 
-        self.chapters_list.currentItemChanged.connect(self.on_chapter_changed)
-        self.chapters_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.chapters_list.customContextMenuRequested.connect(self.open_context_menu)
+    def select_category(self, category):
+        for key, button in self.nav_buttons:
+            button.setChecked(key == category)
+        self.category_selected.emit(category)
 
-    def create_chapter(self):
-        title, ok = QInputDialog.getText(self, "New chapter", "Название главы:")
-        if not ok or not title.strip():
-            return
-        chapter_id = str(uuid.uuid4())
+    def selected_part(self):
+        node = self.tree.currentItem()
+        if not node:
+            return ""
+        kind, identifier = node.data(0, ROLE)
+        if kind == "part":
+            return identifier
+        return node.parent().data(0, ROLE)[1] if node.parent() else ""
 
-        item = self.add_chapter(chapter_id, title.strip())
-        self.chapter_created.emit(chapter_id, title.strip())
-        self.chapters_list.setCurrentItem(item)
+    def populate(self, chapters, parts, selected=None):
+        expanded = {self.tree.topLevelItem(i).data(0, ROLE)[1]: self.tree.topLevelItem(i).isExpanded()
+                    for i in range(self.tree.topLevelItemCount())}
+        self.tree.blockSignals(True)
+        self.tree.clear()
+        self.parts = parts
+        parents = {}
+        for part in parts:
+            node = QTreeWidgetItem([part["title"]])
+            node.setData(0, ROLE, ("part", part["id"]))
+            self.tree.addTopLevelItem(node)
+            node.setExpanded(expanded.get(part["id"], True))
+            parents[part["id"]] = node
+        self.chapter_nodes = {}
+        for chapter in chapters:
+            node = QTreeWidgetItem([chapter["title"]])
+            node.setIcon(0, make_icon("note"))
+            node.setToolTip(0, chapter["title"])
+            node.setData(0, ROLE, ("chapter", chapter["id"]))
+            parent = parents.get(chapter["part_id"])
+            if parent:
+                parent.addChild(node)
+            else:
+                self.tree.addTopLevelItem(node)
+            self.chapter_nodes[chapter["id"]] = node
+        if selected in self.chapter_nodes:
+            self.tree.setCurrentItem(self.chapter_nodes[selected])
+        self.tree.blockSignals(False)
 
-    def rename_chapter(self, item):
-        old_title = item.text()
+    def on_selection(self, current, previous):
+        if current:
+            kind, identifier = current.data(0, ROLE)
+            if kind == "chapter":
+                self.chapter_selected.emit(identifier)
 
-        new_title, ok = QInputDialog.getText(
-            self,
-            "Переименовать главу",
-            "Новое название:",
-            text=old_title
-        )
-
-        if not ok or not new_title.strip():
-            return
-
-        chapter_id = item.data(Qt.ItemDataRole.UserRole)
-        item.setText(new_title.strip())
-        self.chapter_renamed.emit(
-            chapter_id,
-            new_title.strip()
-        )
-
-    def delete_chapter(self, item):
-        chapter_id = item.data(
-            Qt.ItemDataRole.UserRole
-        )
-
-        row = self.chapters_list.row(item)
-        self.chapters_list.takeItem(row)
-        self.chapter_deleted.emit(chapter_id)
-
-    def on_chapter_changed(self, current, previous):
-        if current is None:
-            return
-        chapter_id = current.data(
-            Qt.ItemDataRole.UserRole
-        )
-        self.chapter_selected.emit(chapter_id)
-
-    def open_context_menu(self, position):
-        item = self.chapters_list.itemAt(position)
-
+    def context_menu(self, position):
+        node = self.tree.itemAt(position)
         menu = QMenu(self)
-        create_action = menu.addAction("New chapter")
-        rename_action = None
-        delete_action = None
-
-        if item is not None:
+        add = menu.addAction("Новая глава")
+        add_part = menu.addAction("Новая часть")
+        actions = {}
+        if node:
+            kind, identifier = node.data(0, ROLE)
             menu.addSeparator()
-            rename_action = menu.addAction("Rename")
-            delete_action = menu.addAction("Delete")
+            actions[menu.addAction("Переименовать")] = ("rename", kind, identifier)
+            actions[menu.addAction("Удалить")] = ("delete", kind, identifier)
+            if kind == "chapter":
+                move = menu.addMenu("Переместить в часть")
+                actions[move.addAction("Без части")] = ("move", identifier, "")
+                for part in self.parts:
+                    actions[move.addAction(part["title"])] = ("move", identifier, part["id"])
+        action = menu.exec(self.tree.viewport().mapToGlobal(position))
+        if action == add:
+            part_id = ""
+            if node:
+                kind, identifier = node.data(0, ROLE)
+                part_id = identifier if kind == "part" else (node.parent().data(0, ROLE)[1] if node.parent() else "")
+            self.create_requested.emit(part_id)
+        elif action == add_part:
+            self.part_requested.emit()
+        elif action in actions:
+            operation, first, second = actions[action]
+            {"rename": self.rename_requested, "delete": self.delete_requested, "move": self.move_requested}[operation].emit(first, second)
 
-        selected_action = menu.exec(
-            self.chapters_list.mapToGlobal(position)
-        )
-
-        if selected_action is None:
-            return
-
-        if selected_action == create_action:
-            self.create_chapter()
-
-        elif item is not None and selected_action == rename_action:
-            self.rename_chapter(item)
-
-        elif item is not None and selected_action == delete_action:
-            self.delete_chapter(item)
-
-    def add_chapter(self, chapter_id, title):
-        item = QListWidgetItem(title)
-        item.setData(
-            Qt.ItemDataRole.UserRole,
-            chapter_id
-        )
-        self.chapters_list.addItem(item)
-
-        return item
-    
+    def update_summary(self, title, words, target):
+        self.summary.setText(f"{title}\n{words:,} слов · цель {target:,}".replace(",", " "))
+        self.progress.setRange(0, max(target, 1))
+        self.progress.setValue(min(words, target))
