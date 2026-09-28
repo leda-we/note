@@ -109,3 +109,58 @@ class Database:
 
     def close(self):
         self.connection.close()
+
+
+    def get_root_order(self):
+        """Existing books retain parts-first order until the first manual reorder."""
+        import json
+        parts = [("part", row["id"]) for row in self.get_parts()]
+        chapters = [("chapter", row["id"]) for row in self.get_chapters() if not row["part_id"]]
+        existing = parts + chapters
+        try:
+            saved = [tuple(key) for key in json.loads(self.setting("root_order", "[]"))]
+        except (ValueError, TypeError):
+            saved = []
+        result = []
+        for key in saved + existing:
+            if key in existing and key not in result:
+                result.append(key)
+        return result
+
+    def reorder_tree(self, roots):
+        """Validate the complete snapshot, then save all order/parent changes atomically."""
+        import json
+        part_ids = {row["id"] for row in self.get_parts()}
+        chapter_ids = {row["id"] for row in self.get_chapters()}
+        seen_parts, seen_chapters = set(), set()
+        part_updates, chapter_updates, root_order = [], [], []
+        for position, root in enumerate(roots):
+            kind, identifier = root["kind"], root["id"]
+            children = root.get("children", [])
+            if kind == "part":
+                if identifier not in part_ids or identifier in seen_parts:
+                    raise ValueError("Invalid or duplicate part")
+                seen_parts.add(identifier)
+                part_updates.append((position, identifier))
+                for chapter_id in children:
+                    if chapter_id not in chapter_ids or chapter_id in seen_chapters:
+                        raise ValueError("Invalid or duplicate chapter")
+                    seen_chapters.add(chapter_id)
+                    chapter_updates.append((len(chapter_updates), identifier, chapter_id))
+            elif kind == "chapter":
+                if identifier not in chapter_ids or identifier in seen_chapters or children:
+                    raise ValueError("Invalid root chapter")
+                seen_chapters.add(identifier)
+                chapter_updates.append((len(chapter_updates), "", identifier))
+            else:
+                raise ValueError("Unsupported tree node")
+            root_order.append((kind, identifier))
+        if seen_parts != part_ids or seen_chapters != chapter_ids:
+            raise ValueError("Incomplete book structure")
+        with self.connection:
+            self.connection.executemany("UPDATE parts SET position=? WHERE id=?", part_updates)
+            self.connection.executemany("UPDATE chapters SET position=?, part_id=? WHERE id=?", chapter_updates)
+            self.connection.execute(
+                "INSERT INTO settings VALUES ('root_order', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (json.dumps(root_order),),
+            )

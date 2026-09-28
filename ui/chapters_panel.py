@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui.icons import make_icon
+from ui.book_tree import BookTree
 
 ROLE = Qt.ItemDataRole.UserRole
 
@@ -17,6 +18,7 @@ class ChapterPanel(QWidget):
     delete_requested = Signal(str, str)
     move_requested = Signal(str, str)
     category_selected = Signal(str)
+    structure_changed = Signal(list)
 
     def __init__(self):
         super().__init__()
@@ -54,7 +56,8 @@ class ChapterPanel(QWidget):
         add_part.clicked.connect(self.part_requested.emit)
         heading.addWidget(add_part)
         layout.addLayout(heading)
-        self.tree = QTreeWidget()
+        self.tree = BookTree()
+        self.tree.structure_changed.connect(self.structure_changed.emit)
         self.tree.setHeaderHidden(True)
         self.tree.setIndentation(16)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -91,7 +94,7 @@ class ChapterPanel(QWidget):
             return identifier
         return node.parent().data(0, ROLE)[1] if node.parent() else ""
 
-    def populate(self, chapters, parts, selected=None):
+    def populate(self, chapters, parts, selected=None, root_order=None):
         expanded = {self.tree.topLevelItem(i).data(0, ROLE)[1]: self.tree.topLevelItem(i).isExpanded()
                     for i in range(self.tree.topLevelItemCount())}
         self.tree.blockSignals(True)
@@ -107,6 +110,7 @@ class ChapterPanel(QWidget):
         self.chapter_nodes = {}
         for chapter in chapters:
             node = QTreeWidgetItem([chapter["title"]])
+            node.setFlags(node.flags() & ~Qt.ItemFlag.ItemIsDropEnabled)
             node.setIcon(0, make_icon("note"))
             node.setToolTip(0, chapter["title"])
             node.setData(0, ROLE, ("chapter", chapter["id"]))
@@ -116,6 +120,21 @@ class ChapterPanel(QWidget):
             else:
                 self.tree.addTopLevelItem(node)
             self.chapter_nodes[chapter["id"]] = node
+        if root_order:
+            nodes = []
+            while self.tree.topLevelItemCount():
+                nodes.append(self.tree.takeTopLevelItem(0))
+            by_key = {node.data(0, ROLE): node for node in nodes}
+            ordered = []
+            for key in root_order:
+                node = by_key.pop(tuple(key), None)
+                if node is not None:
+                    ordered.append(node)
+            ordered.extend(by_key.values())
+            for node in ordered:
+                self.tree.addTopLevelItem(node)
+                if node.data(0, ROLE)[0] == "part":
+                    node.setExpanded(expanded.get(node.data(0, ROLE)[1], True))
         if selected in self.chapter_nodes:
             self.tree.setCurrentItem(self.chapter_nodes[selected])
         self.tree.blockSignals(False)
@@ -155,7 +174,11 @@ class ChapterPanel(QWidget):
             operation, first, second = actions[action]
             {"rename": self.rename_requested, "delete": self.delete_requested, "move": self.move_requested}[operation].emit(first, second)
 
-    def update_summary(self, title, words, target):
-        self.summary.setText(f"{title}\n{words:,} слов · цель {target:,}".replace(",", " "))
-        self.progress.setRange(0, max(target, 1))
-        self.progress.setValue(min(words, target))
+    def update_summary(self, title, words, chapter_words):
+        fraction = chapter_words / words if words else 0
+        text = f"{title}\nВ книге: {words:,} слов\nГлава: {chapter_words:,} слов · {fraction:.0%}"
+        self.summary.setText(text.replace(",", " "))
+        self.summary.setTextFormat(Qt.TextFormat.PlainText)
+        self.progress.setRange(0, 1000)
+        self.progress.setValue(round(fraction * 1000))
+        self.progress.setToolTip(f"Доля текущей главы: {fraction:.1%} от всех слов книги")

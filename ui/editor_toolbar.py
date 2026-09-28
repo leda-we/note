@@ -1,5 +1,5 @@
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QTextCharFormat, QTextBlockFormat, QTextListFormat, QKeySequence, QShortcut
+from PySide6.QtGui import QFont, QTextCharFormat, QTextBlockFormat, QTextListFormat, QKeySequence, QShortcut, QTextCursor
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QToolButton, QComboBox
 
 
@@ -86,11 +86,27 @@ class EditorToolbar(QFrame):
         block.setLineHeight(145, QTextBlockFormat.LineHeightTypes.ProportionalHeight.value)
         cursor.mergeBlockFormat(block)
         fmt = QTextCharFormat()
-        fmt.setFontPointSize([15, 25, 20, 15][index])
+        base = self.editor.document().defaultFont().pointSizeF()
+        base = base if base > 0 else 15
+        fmt.setFontPointSize([base, base * 5 / 3, base * 4 / 3, base][index])
         fmt.setFontWeight(QFont.Weight.Bold if index in (1, 2) else QFont.Weight.Normal)
         fmt.setFontItalic(index == 3)
+        original = QTextCursor(cursor)
+        start = cursor.selectionStart()
+        end = cursor.selectionEnd()
+        cursor.setPosition(start)
+        cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+        first = cursor.position()
+        cursor.setPosition(end - 1 if end > start else end)
+        cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+        cursor.setPosition(first, QTextCursor.MoveMode.KeepAnchor)
+        cursor.mergeCharFormat(fmt)
         cursor.mergeBlockCharFormat(fmt)
         cursor.endEditBlock()
+        self.editor.setTextCursor(original)
+        if not original.hasSelection():
+            self.editor.mergeCurrentCharFormat(fmt)
+        self.update_paragraph()
         self.editor.setFocus()
 
     def toggle_list(self, checked=False):

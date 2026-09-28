@@ -1,10 +1,13 @@
 from PySide6.QtCore import Qt, Signal
+from ui.clipboard_image import enable_image_paste
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QFileDialog
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QFileDialog, QSizePolicy
 
 
 class InspirationPanel(QWidget):
     image_chosen = Signal(str)
+
+    image_paste_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -17,7 +20,12 @@ class InspirationPanel(QWidget):
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image_label.setWordWrap(True)
         self.image_label.setMinimumSize(1, 1)
+        self.image_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         layout.addWidget(self.image_label, 1)
+        self.paste_shortcut = enable_image_paste(self.image_label, self.image_paste_requested.emit)
+        paste = QPushButton("Вставить из буфера")
+        paste.clicked.connect(self.image_paste_requested.emit)
+        layout.addWidget(paste)
         choose = QPushButton("Выбрать изображение")
         choose.clicked.connect(self.choose_image)
         layout.addWidget(choose)

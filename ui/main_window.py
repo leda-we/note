@@ -16,12 +16,14 @@ from database.database import Database
 from database.library import Library
 from ui.library_page import LibraryPage
 from ui.font_dialog import FontDialog
+from ui.clipboard_image import clipboard_image
 from ui.paper_surface import PaperSurface
 from ui.chapters_panel import ChapterPanel
 from ui.editor import BookEditor
 from ui.editor_toolbar import EditorToolbar
 from ui.object_panel import ObjectPanel
 from ui.icons import make_icon
+from ui.animated_button import LibraryButton
 from ui.inspiration_panel import InspirationPanel
 
 TYPES = {"character": "Персонаж", "location": "Локация", "note": "Заметка"}
@@ -30,6 +32,7 @@ TYPES = {"character": "Персонаж", "location": "Локация", "note": 
 class MainWindow(QMainWindow):
     def __init__(self, database_path=None):
         super().__init__()
+        self._closed = False
         initial_path = Path(database_path).resolve() if database_path else Path(__file__).resolve().parent.parent / "book_writer.db"
         self.library = Library(initial_path.parent)
         self.library.register(initial_path)
@@ -103,9 +106,10 @@ class MainWindow(QMainWindow):
         self.book_title = QPushButton(self.db.setting("book_title", "Моя книга"))
         self.book_title.setIcon(make_icon("book"))
         self.book_title.setObjectName("bookTitle")
-        self.book_title.setToolTip("Название книги и цель по словам")
+        self.book_title.setToolTip("Изменить название книги")
         self.book_title.clicked.connect(self.edit_book)
-        library_button = QPushButton("Библиотека")
+        library_button = LibraryButton("Библиотека")
+        self.library_button = library_button
         library_button.setObjectName("libraryButton")
         library_button.setIcon(make_icon("all"))
         library_button.clicked.connect(self.show_library)
@@ -123,7 +127,11 @@ class MainWindow(QMainWindow):
             ("Фокус", "Скрыть боковые панели · F11", self.toggle_focus),
             ("···", "Действия с книгой", self.show_book_menu),
         ]:
-            button = QPushButton(text)
+            button = QPushButton(text if text == "···" else "")
+            if text != "···":
+                button.setIcon(make_icon("search" if text == "Поиск" else "focus"))
+                button.setAccessibleName(text)
+                button.setFixedSize(34, 34)
             button.setToolTip(tip)
             button.clicked.connect(callback)
             header_layout.addWidget(button)
@@ -143,7 +151,12 @@ class MainWindow(QMainWindow):
         self.editor = BookEditor()
         self.editor.setObjectName("bookEditor")
         self.editor_toolbar = EditorToolbar(self.editor)
-        center_layout.addWidget(self.editor_toolbar)
+        toolbar_container = QWidget()
+        toolbar_container.setObjectName("toolbarContainer")
+        toolbar_layout = QVBoxLayout(toolbar_container)
+        toolbar_layout.setContentsMargins(12, 10, 12, 0)
+        toolbar_layout.addWidget(self.editor_toolbar)
+        center_layout.addWidget(toolbar_container)
         self.search_bar = QWidget()
         search_layout = QHBoxLayout(self.search_bar)
         search_layout.setContentsMargins(16, 6, 16, 6)
@@ -251,6 +264,7 @@ class MainWindow(QMainWindow):
         self.chapter_panel.rename_requested.connect(self.rename_node)
         self.chapter_panel.delete_requested.connect(self.delete_node)
         self.chapter_panel.move_requested.connect(self.move_chapter)
+        self.chapter_panel.structure_changed.connect(self.reorder_book)
         self.chapter_panel.category_selected.connect(self.select_category)
         self.editor.textChanged.connect(self.schedule_save)
         self.editor.link_requested.connect(self.create_link)
@@ -262,18 +276,22 @@ class MainWindow(QMainWindow):
         self.object_panel.image_removed.connect(self.remove_object_image)
         self.object_panel.chapter_requested.connect(self.open_chapter)
         self.inspiration_panel.image_chosen.connect(self.save_inspiration)
+        self.inspiration_panel.image_paste_requested.connect(lambda: self.paste_image(True))
+        self.object_panel.image_paste_requested.connect(lambda: self.paste_image(False))
 
 
     def reload_tree(self):
         self.chapters = {row["id"]: dict(row) for row in self.db.get_chapters()}
-        self.chapter_panel.populate(list(self.chapters.values()), [dict(p) for p in self.db.get_parts()], self.current_chapter_id)
+        self.chapter_panel.populate(list(self.chapters.values()), [dict(p) for p in self.db.get_parts()], self.current_chapter_id, self.db.get_root_order())
         self.update_summary()
 
     def update_summary(self):
         words = sum(len(ch["text"].split()) for ch in self.chapters.values())
+        chapter_words = 0
         if self.current_chapter_id in self.chapters:
-            words += len(self.editor.toPlainText().split()) - len(self.chapters[self.current_chapter_id]["text"].split())
-        self.chapter_panel.update_summary(self.db.setting("book_title", "Моя книга"), words, int(self.db.setting("word_target", "80000")))
+            chapter_words = len(self.editor.toPlainText().split())
+            words += chapter_words - len(self.chapters[self.current_chapter_id]["text"].split())
+        self.chapter_panel.update_summary(self.db.setting("book_title", "Моя книга"), words, chapter_words)
 
     def create_chapter(self, part_id=""):
         if self.app_stack.currentWidget() is self.library_page:
@@ -527,6 +545,29 @@ class MainWindow(QMainWindow):
         shutil.copy2(source, destination)
         return str(destination.relative_to(self.db.path.parent))
 
+    def paste_image(self, inspiration=False):
+        if not inspiration and not self.current_linked_item_id:
+            return
+        image = clipboard_image()
+        if image.isNull():
+            QMessageBox.information(self, "Изображение", "В буфере обмена нет изображения.")
+            return
+        destination = self.db.path.parent / "data" / "images" / (uuid.uuid4().hex + ".png")
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if not image.save(str(destination), "PNG"):
+                raise OSError("Не удалось сохранить изображение.")
+            stored = str(destination.relative_to(self.db.path.parent))
+            if inspiration:
+                self.db.set_setting("inspiration_image", stored)
+                self.inspiration_panel.load_path(str(destination))
+            else:
+                self.object_panel.set_image(str(destination))
+                self.schedule_object_save()
+                self.save_current_object()
+        except (OSError, sqlite3.Error) as error:
+            QMessageBox.warning(self, "Изображение", str(error))
+
     def choose_object_image(self):
         source, _ = QFileDialog.getOpenFileName(self, "Изображение объекта", "", "Изображения (*.png *.jpg *.jpeg *.webp *.bmp)")
         if source:
@@ -569,9 +610,6 @@ class MainWindow(QMainWindow):
             return
         self.db.set_setting("book_title", title.strip())
         self.book_title.setText(title.strip())
-        goal, ok = QInputDialog.getInt(self, "Цель книги", "Количество слов:", int(self.db.setting("word_target", "80000")), 1, 10000000, 1000)
-        if ok:
-            self.db.set_setting("word_target", goal)
         self.update_summary()
 
     def toggle_focus(self):
@@ -619,9 +657,32 @@ class MainWindow(QMainWindow):
 
     def ordered_chapters(self):
         chapters = list(self.chapters.values())
-        parts = [p["id"] for p in self.db.get_parts()]
-        known = set(parts)
-        return [c for part in parts for c in chapters if c["part_id"] == part] + [c for c in chapters if c["part_id"] not in known]
+        ordered = []
+        for kind, identifier in self.db.get_root_order():
+            if kind == "part":
+                ordered.extend(c for c in chapters if c["part_id"] == identifier)
+            elif identifier in self.chapters:
+                ordered.append(self.chapters[identifier])
+        return ordered
+
+    def reorder_book(self, roots):
+        if not self.save_current_chapter():
+            self.reload_tree()
+            return
+        try:
+            self.db.reorder_tree(roots)
+        except (sqlite3.Error, ValueError) as error:
+            QMessageBox.warning(self, "Не удалось изменить порядок", str(error))
+            self.reload_tree()
+            return
+        self.reload_tree()
+        if self.current_chapter_id in self.chapters:
+            chapter = self.chapters[self.current_chapter_id]
+            part = next((p["title"] for p in self.db.get_parts() if p["id"] == chapter["part_id"]), "")
+            breadcrumb = "  /  ".join(filter(None, ["Книга", part, chapter["title"]]))
+            self.chapter_title_label.setText(breadcrumb)
+            self.chapter_title_label.setToolTip(breadcrumb)
+        self.statusBar().showMessage("Порядок глав и частей сохранён", 3000)
 
     def export_book(self):
         if not self.save_all():
@@ -662,11 +723,17 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Экспорт", str(error))
 
     def save_all(self):
+        if self._closed:
+            return True
+        self.chapter_panel.tree.flush_structure()
         first = self.save_current_chapter()
         second = self.save_current_object()
         return first and second
 
     def closeEvent(self, event):
+        if self._closed:
+            event.accept()
+            return
         if not self.save_all():
             event.ignore()
             return
@@ -678,7 +745,9 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Не удалось сохранить настройки", str(error))
             event.ignore()
             return
+        self.chapter_panel.tree.commit_timer.stop()
         self.db.close()
+        self._closed = True
         event.accept()
 
 

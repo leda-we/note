@@ -1,4 +1,4 @@
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QFontComboBox, QSpinBox, QLabel, QDialogButtonBox
 
 
@@ -13,8 +13,14 @@ class FontDialog(QDialog):
         hint = QLabel("Изменить выделенный текст" if selection else "Изменить всю текущую главу и шрифт новых глав")
         hint.setObjectName("muted")
         layout.addWidget(hint)
+        available = QLabel("Установленные шрифты с поддержкой кириллицы.")
+        available.setObjectName("muted")
+        layout.addWidget(available)
         form = QFormLayout()
         self.family = QFontComboBox()
+        self.family.setWritingSystem(QFontDatabase.WritingSystem.Cyrillic)
+        self.family.setFontFilters(QFontComboBox.FontFilter.ScalableFonts)
+        self.family.setEditable(False)
         self.family.setCurrentFont(font)
         self.size = QSpinBox()
         self.size.setRange(8, 72)

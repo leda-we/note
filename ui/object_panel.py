@@ -1,5 +1,7 @@
 from PySide6.QtCore import Qt, Signal
+from ui.clipboard_image import enable_image_paste
 from ui.aspect_image import AspectImage
+from ui.tag_edit import TagEdit
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton,
     QSizePolicy, QFormLayout, QTabWidget, QScrollArea, QListWidget, QListWidgetItem, QHBoxLayout,
@@ -12,6 +14,8 @@ class ObjectPanel(QWidget):
     image_removed = Signal()
     chapter_requested = Signal(str)
 
+    image_paste_requested = Signal()
+
     def __init__(self):
         super().__init__()
         self.loading = False
@@ -22,6 +26,8 @@ class ObjectPanel(QWidget):
         layout.addWidget(self.tabs)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         body = QWidget()
         body_layout = QVBoxLayout(body)
@@ -29,6 +35,11 @@ class ObjectPanel(QWidget):
         body_layout.setSpacing(14)
         self.image_label = AspectImage()
         body_layout.addWidget(self.image_label)
+        self.paste_shortcut = enable_image_paste(self.image_label, self.image_paste_requested.emit)
+        paste = QPushButton("Вставить из буфера")
+        paste.setObjectName("quietButton")
+        paste.clicked.connect(self.image_paste_requested.emit)
+        body_layout.addWidget(paste)
         image_buttons = QHBoxLayout()
         choose = QPushButton("Изменить изображение")
         choose.setObjectName("quietButton")
@@ -62,7 +73,7 @@ class ObjectPanel(QWidget):
             ("period", "Период", "Например, XIX век"),
             ("tags", "Теги", "Город, туман, вдохновение"),
         ]:
-            field = QLineEdit()
+            field = TagEdit() if key == "tags" else QLineEdit()
             field.setMinimumWidth(0)
             field.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
             field.setPlaceholderText(placeholder)

@@ -91,4 +91,9 @@ QLabel#cardTitle { font-family: "Georgia"; font-size: 19px; color: #eadcc4; }
 QPushButton#primaryButton { background: #a57e4b; color: #161411; border: 1px solid #c49c63; padding: 10px 18px; font-weight: 600; }
 QPushButton#primaryButton:hover { background: #bd955c; }
 QLabel#fontPreview { background: #24211c; color: #e8dac0; padding: 18px; border: 1px solid #4b3c28; border-radius: 6px; }
+
+QPushButton#libraryButton { background: transparent; border: none; padding: 8px 12px; }
+QWidget#toolbarContainer { background: #171511; }
+QFrame#editorToolbar { background: #211e19; border: 1px solid #3a3228; border-radius: 12px; }
+QTreeWidget#bookTree::item, QTreeWidget#bookTree::item:selected, QTreeWidget#bookTree::item:hover { background: transparent; border: none; }
 """

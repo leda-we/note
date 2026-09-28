@@ -9,7 +9,14 @@ def make_icon(kind, color="#c9ad83"):
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setPen(QPen(QColor(color), 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-    if kind == "character":
+    if kind == "search":
+        painter.drawEllipse(QRectF(4, 3, 12, 12))
+        painter.drawLine(14, 14, 21, 21)
+    elif kind == "focus":
+        for x,y,dx,dy in ((3,3,1,1),(21,3,-1,1),(3,21,1,-1),(21,21,-1,-1)):
+            painter.drawLine(x,y,x+dx*5,y)
+            painter.drawLine(x,y,x,y+dy*5)
+    elif kind == "character":
         painter.drawEllipse(QRectF(8, 3, 8, 8))
         path = QPainterPath(QPointF(4, 21))
         path.cubicTo(4, 11, 20, 11, 20, 21)

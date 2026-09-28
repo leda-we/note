@@ -1,7 +1,7 @@
 import random
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPainter, QPixmap, QColor
-from PySide6.QtWidgets import QFrame, QGraphicsDropShadowEffect
+from PySide6.QtWidgets import QFrame
 
 
 class PaperSurface(QFrame):
@@ -17,11 +17,6 @@ class PaperSurface(QFrame):
             painter.setPen(QColor(223, 207, 178, rng.randrange(3, 11)))
             painter.drawPoint(rng.randrange(128), rng.randrange(128))
         painter.end()
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(30)
-        shadow.setOffset(0, 5)
-        shadow.setColor(QColor(0, 0, 0, 65))
-        self.setGraphicsEffect(shadow)
 
     def paintEvent(self, event):
         super().paintEvent(event)

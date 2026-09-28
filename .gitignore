@@ -14,3 +14,5 @@ README.md
 requirements.txt
 tests/
 scripts/
+diagnostics.py
+daynote.txt
